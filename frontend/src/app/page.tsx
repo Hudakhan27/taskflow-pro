@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -11,15 +12,20 @@ import {
 import {
   Lock,
   CheckCircle2,
-  AlertTriangle,
+  AlertCircle,
   RotateCcw,
   Sparkles,
   Calendar,
-  Layers,
+  Kanban,
   X,
 } from 'lucide-react';
 
-export type ColumnState = 'BACKLOG' | 'IN_PROGRESS' | 'REVIEW' | 'DONE';
+export type ColumnState =
+  | 'BACKLOG'
+  | 'IN_PROGRESS'
+  | 'REVIEW'
+  | 'DONE';
+
 export type TaskStatus = 'READY' | 'BLOCKED';
 
 export interface Task {
@@ -41,28 +47,55 @@ export interface DependencySuggestion {
   rationale: string;
 }
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = typeof window !== 'undefined' 
+  ? `http://${window.location.hostname}:8000` 
+  : 'http://127.0.0.1:8000';
 
-const COLUMNS: { id: ColumnState; title: string; color: string }[] = [
-  { id: 'BACKLOG', title: 'Backlog', color: 'border-slate-500' },
-  { id: 'IN_PROGRESS', title: 'In Progress', color: 'border-blue-500' },
-  { id: 'REVIEW', title: 'Review', color: 'border-amber-500' },
-  { id: 'DONE', title: 'Done', color: 'border-emerald-500' },
+const COLUMNS: {
+  id: ColumnState;
+  title: string;
+  accent: string;
+}[] = [
+  {
+    id: 'BACKLOG',
+    title: 'Backlog',
+    accent: 'bg-pink-300',
+  },
+  {
+    id: 'IN_PROGRESS',
+    title: 'In Progress',
+    accent: 'bg-pink-400',
+  },
+  {
+    id: 'REVIEW',
+    title: 'In Review',
+    accent: 'bg-pink-500',
+  },
+  {
+    id: 'DONE',
+    title: 'Completed',
+    accent: 'bg-pink-600',
+  },
 ];
 
 export default function KanbanBoard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [aiSuggestions, setAiSuggestions] = useState<DependencySuggestion[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<
+    DependencySuggestion[]
+  >([]);
   const [loadingAi, setLoadingAi] = useState(false);
 
   const fetchTasks = async () => {
     try {
-      const res = await axios.get<Task[]>(`${API_BASE}/api/tasks`);
+      const res = await axios.get(`${API_BASE}/api/tasks`);
+
       setTasks(res.data);
       setErrorMessage(null);
     } catch {
-      setErrorMessage('Backend server offline hai. Port 8000 check karein.');
+      setErrorMessage(
+        'Backend service unavailable. Please check port 8000.'
+      );
     }
   };
 
@@ -74,6 +107,7 @@ export default function KanbanBoard() {
     const { destination, source, draggableId } = result;
 
     if (!destination) return;
+
     if (
       destination.droppableId === source.droppableId &&
       destination.index === source.index
@@ -81,34 +115,50 @@ export default function KanbanBoard() {
       return;
     }
 
-    const task = tasks.find((item) => item.id === draggableId);
+    const task = tasks.find((t) => t.id === draggableId);
+
     if (!task) return;
 
     const targetColumn = destination.droppableId as ColumnState;
 
-    if (task.status === 'BLOCKED' && targetColumn !== 'BACKLOG') {
+    if (
+      task.status === 'BLOCKED' &&
+      targetColumn !== 'BACKLOG'
+    ) {
       setErrorMessage(
-        `Action Blocked: "${task.id}" ke direct predecessors complete nahi hue hain.`
+        `Action Blocked: Task "${task.id}" has incomplete upstream dependencies.`
       );
       return;
     }
 
     const previousTasks = [...tasks];
+
     setTasks((prev) =>
-      prev.map((item) =>
-        item.id === draggableId ? { ...item, column: targetColumn } : item
+      prev.map((t) =>
+        t.id === draggableId
+          ? {
+              ...t,
+              column: targetColumn,
+            }
+          : t
       )
     );
 
     try {
-      await axios.patch(`${API_BASE}/api/tasks/${draggableId}`, {
-        column: targetColumn,
-      });
-      await fetchTasks();
+      await axios.patch(
+        `${API_BASE}/api/tasks/${draggableId}`,
+        {
+          column: targetColumn,
+        }
+      );
+
+      fetchTasks();
     } catch (err: any) {
       setTasks(previousTasks);
+
       setErrorMessage(
-        err.response?.data?.detail || 'Status update karne me error aaya.'
+        err.response?.data?.detail ||
+          'Failed to update task state.'
       );
     }
   };
@@ -116,158 +166,195 @@ export default function KanbanBoard() {
   const handleReset = async () => {
     try {
       await axios.post(`${API_BASE}/api/reset`);
-      await fetchTasks();
+
+      fetchTasks();
       setAiSuggestions([]);
     } catch {
-      setErrorMessage('Reset fail ho gaya.');
+      setErrorMessage('Unable to reset board data.');
     }
   };
 
   const handleFetchAi = async () => {
     setLoadingAi(true);
+
     try {
-      const res = await axios.get<DependencySuggestion[]>(
+      const res = await axios.get(
         `${API_BASE}/api/ai/suggest-dependencies`
       );
+
       setAiSuggestions(res.data);
     } catch {
-      setErrorMessage('AI suggestions fetch nahi ho paye.');
+      setErrorMessage(
+        'Failed to fetch dependency suggestions.'
+      );
     } finally {
       setLoadingAi(false);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '—';
-
-    const parsed = new Date(dateString);
-    if (Number.isNaN(parsed.getTime())) return dateString;
-
-    return parsed.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <header className="mb-8 flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">
-              <Layers className="h-4 w-4" />
-              TaskFlow Pro
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-              Dependency-Aware DAG Kanban Engine
-            </h1>
+    <main className="min-h-screen bg-pink-50 text-black">
+      {/* Header */}
+      <header className="border-b border-pink-200 bg-white/90 px-6 py-5 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
+          {/* Logo / Title */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-black shadow-sm">
+              <Kanban className="h-6 w-6 text-pink-300" />
+            </div>
+
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-black">
+                TaskFlow Pro
+              </h1>
+
+              <p className="text-sm text-pink-500">
+                Dependency-Aware DAG Workflow Engine
+              </p>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          {/* Header Buttons */}
+          <div className="flex items-center gap-3">
             <button
-              type="button"
               onClick={handleFetchAi}
               disabled={loadingAi}
-              className="inline-flex items-center gap-2 rounded-xl border border-cyan-500 bg-cyan-500/10 px-4 py-2 text-sm font-semibold text-cyan-200 transition hover:border-cyan-400 hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-semibold text-pink-200 shadow-sm transition hover:bg-pink-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loadingAi ? (
-                <>
-                  <Sparkles className="h-4 w-4 animate-pulse" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  AI Suggestions
-                </>
-              )}
+              <Sparkles className="h-4 w-4" />
+
+              {loadingAi
+                ? 'Analyzing Graph...'
+                : 'Suggestions'}
             </button>
 
             <button
-              type="button"
               onClick={handleReset}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-600 hover:bg-slate-700"
+              className="flex items-center gap-2 rounded-xl border border-pink-200 bg-pink-50 px-4 py-2.5 text-sm font-semibold text-black transition hover:border-pink-400 hover:bg-pink-100"
             >
-              <RotateCcw className="h-4 w-4" />
-              Reset Seed
+              <RotateCcw className="h-4 w-4 text-pink-500" />
+
+              Reset Data
             </button>
           </div>
-        </header>
+        </div>
+      </header>
 
+      {/* Main Container */}
+      <div className="mx-auto max-w-7xl px-6 py-7">
+        {/* Error Toast */}
         {errorMessage && (
-          <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              <span>{errorMessage}</span>
+          <div className="mb-6 flex items-center justify-between rounded-2xl border border-pink-300 bg-white px-5 py-4 text-pink-700 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-pink-100">
+                <AlertCircle className="h-5 w-5 text-pink-600" />
+              </div>
+
+              <span className="text-sm font-medium">
+                {errorMessage}
+              </span>
             </div>
+
             <button
-              type="button"
               onClick={() => setErrorMessage(null)}
-              className="text-slate-400 transition hover:text-white"
-              aria-label="Dismiss notification"
+              className="rounded-lg p-1 text-pink-500 transition hover:bg-pink-100 hover:text-black"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
         )}
 
+        {/* Suggestions */}
         {aiSuggestions.length > 0 && (
-          <section className="mb-8 rounded-2xl border border-cyan-500/30 bg-slate-900/80 p-5 shadow-lg shadow-cyan-950/20">
-            <div className="mb-4 flex items-center gap-2 text-lg font-semibold text-cyan-200">
-              <Sparkles className="h-5 w-5" />
-              Recommended Graph Dependencies
+          <section className="mb-7 rounded-3xl border border-pink-200 bg-white p-6 shadow-sm">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-pink-100">
+                <Sparkles className="h-5 w-5 text-pink-600" />
+              </div>
+
+              <div>
+                <h2 className="text-lg font-bold text-black">
+                  Recommended Graph Edges
+                </h2>
+
+                <p className="text-sm text-pink-500">
+                  AI-generated dependency suggestions
+                </p>
+              </div>
             </div>
 
             <div className="space-y-3">
-              {aiSuggestions.map((suggestion, idx) => (
+              {aiSuggestions.map((s, idx) => (
                 <div
-                  key={`${suggestion.predecessor_id}-${suggestion.successor_id}-${idx}`}
-                  className="rounded-xl border border-slate-700 bg-slate-950/60 p-3"
+                  key={`${s.predecessor_id}-${s.successor_id}-${idx}`}
+                  className="rounded-2xl border border-pink-100 bg-pink-50 p-4"
                 >
-                  <div className="mb-1 flex items-center gap-2 text-sm font-medium text-slate-200">
-                    <span className="rounded bg-slate-800 px-2 py-1 text-cyan-300">
-                      {suggestion.predecessor_id}
+                  <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    <span className="rounded-lg bg-black px-3 py-1.5 text-pink-200">
+                      {s.predecessor_id}
                     </span>
-                    <span className="text-cyan-400">➔</span>
-                    <span className="rounded bg-slate-800 px-2 py-1 text-violet-300">
-                      {suggestion.successor_id}
+
+                    <span className="text-lg font-bold text-pink-500">
+                      ➜
+                    </span>
+
+                    <span className="rounded-lg bg-black px-3 py-1.5 text-pink-200">
+                      {s.successor_id}
                     </span>
                   </div>
-                  <p className="text-sm text-slate-300">{suggestion.rationale}</p>
+
+                  <p className="mt-3 text-sm leading-6 text-gray-600">
+                    {s.rationale}
+                  </p>
                 </div>
               ))}
             </div>
           </section>
         )}
 
+        {/* Kanban Board */}
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="grid gap-5 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
             {COLUMNS.map((col) => {
-              const columnTasks = tasks.filter((task) => task.column === col.id);
+              const columnTasks = tasks.filter(
+                (t) => t.column === col.id
+              );
 
               return (
-                <div
+                <section
                   key={col.id}
-                  className={`rounded-2xl border bg-slate-900/70 p-3 shadow-lg shadow-slate-950/40 ${col.color}`}
+                  className="min-h-[500px] overflow-hidden rounded-3xl border border-pink-200 bg-white shadow-sm"
                 >
-                  <div className="mb-4 flex items-center justify-between border-b border-slate-800 pb-3">
-                    <h2 className="text-lg font-semibold text-white">{col.title}</h2>
-                    <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-xs font-medium text-slate-300">
-                      {columnTasks.length}
-                    </span>
+                  {/* Column Header */}
+                  <div className="border-b border-pink-100 bg-pink-50 px-5 py-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`h-3 w-3 rounded-full ${col.accent}`}
+                        />
+
+                        <h3 className="font-bold text-black">
+                          {col.title}
+                        </h3>
+                      </div>
+
+                      <span className="rounded-full bg-black px-2.5 py-1 text-xs font-bold text-pink-200">
+                        {columnTasks.length}
+                      </span>
+                    </div>
                   </div>
 
+                  {/* Task List */}
                   <Droppable droppableId={col.id}>
                     {(provided) => (
                       <div
                         ref={provided.innerRef}
                         {...provided.droppableProps}
-                        className="flex min-h-[320px] flex-col gap-3"
+                        className="min-h-[440px] space-y-4 p-4"
                       >
-
                         {columnTasks.map((task, index) => {
-                          const isBlocked = task.status === 'BLOCKED';
+                          const isBlocked =
+                            task.status === 'BLOCKED';
 
                           return (
                             <Draggable
@@ -280,66 +367,68 @@ export default function KanbanBoard() {
                                   ref={dragProvided.innerRef}
                                   {...dragProvided.draggableProps}
                                   {...dragProvided.dragHandleProps}
-                                  style={dragProvided.draggableProps.style}
-                                  className="rounded-xl border border-slate-700 bg-slate-950/80 p-3 shadow-sm transition hover:border-slate-500"
+                                  className="cursor-grab rounded-2xl border border-pink-100 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-pink-300 hover:shadow-md active:cursor-grabbing"
                                 >
-                                  <div className="mb-2 flex items-center justify-between gap-2">
-                                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                                  {/* Task Top Meta */}
+                                  <div className="mb-3 flex items-center justify-between">
+                                    <span className="rounded-lg bg-black px-2.5 py-1 text-xs font-bold text-pink-200">
                                       {task.id}
                                     </span>
 
-                                    <span
-                                      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${
-                                        isBlocked
-                                          ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30'
-                                          : 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
-                                      }`}
-                                    >
-                                      {isBlocked ? (
-                                        <>
-                                          <Lock className="h-3 w-3" />
-                                          Blocked
-                                        </>
-                                      ) : (
-                                        <>
-                                          <CheckCircle2 className="h-3 w-3" />
-                                          Ready
-                                        </>
-                                      )}
-                                    </span>
+                                    {isBlocked ? (
+                                      <span className="flex items-center gap-1.5 rounded-full bg-pink-100 px-2.5 py-1 text-xs font-semibold text-pink-700">
+                                        <Lock className="h-3 w-3" />
+                                        Blocked
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1.5 rounded-full bg-pink-50 px-2.5 py-1 text-xs font-semibold text-pink-600">
+                                        <CheckCircle2 className="h-3 w-3" />
+                                        Ready
+                                      </span>
+                                    )}
                                   </div>
 
-                                  <h3 className="mb-2 text-base font-semibold text-white">
+                                  {/* Task Title */}
+                                  <h4 className="mb-2 text-base font-bold text-black">
                                     {task.title}
-                                  </h3>
+                                  </h4>
 
-                                  <p className="mb-3 text-sm leading-relaxed text-slate-300">
+                                  {/* Task Description */}
+                                  <p className="text-sm leading-6 text-gray-600">
                                     {task.description}
                                   </p>
 
-                                  <div className="mb-2 flex items-center gap-2 text-xs text-slate-400">
-                                    <Calendar className="h-3.5 w-3.5" />
-                                    <span>{formatDate(task.due_date)}</span>
-                                  </div>
+                                  {/* Task Footer */}
+                                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-pink-100 pt-3 text-xs text-gray-500">
+                                    <div className="flex items-center gap-1.5">
+                                      <Calendar className="h-3.5 w-3.5 text-pink-500" />
 
-                                  {task.predecessors?.length > 0 && (
-                                    <div className="text-xs text-slate-400">
-                                      <span className="font-medium text-slate-300">
-                                        Dep:{' '}
+                                      <span>
+                                        {task.due_date}
                                       </span>
-                                      {task.predecessors.join(', ')}
                                     </div>
-                                  )}
+
+                                    {task.predecessors?.length >
+                                      0 && (
+                                      <span className="rounded-lg bg-pink-50 px-2 py-1 text-pink-600">
+                                        Dep:{' '}
+                                        {task.predecessors.join(
+                                          ', '
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
                                 </article>
                               )}
                             </Draggable>
                           );
                         })}
+
                         {provided.placeholder}
                       </div>
                     )}
                   </Droppable>
-                </div>
+                </section>
               );
             })}
           </div>
