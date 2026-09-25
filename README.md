@@ -18,15 +18,21 @@ A full-stack workflow automation board that models task execution constraints as
 ### Backend
 
 cd backend
+
 python -m venv venv
+
 venv\Scripts\activate
+
 pip install -r requirements.txt
+
 uvicorn app.main:app --reload --port 8000
 
 ### Frontend
 
 cd frontend
+
 npm install
+
 npm run dev
 
 ### Running Tests
