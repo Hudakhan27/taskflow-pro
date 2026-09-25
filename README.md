@@ -46,13 +46,13 @@ git add README.md
 git commit -m "docs: add architecture documentation and setup guide"
 git push
 
-
+```
 
 ###Architecture & Data Model
 - **Task Entity**: Enforces dependencies via `predecessors` and `successors` lists.
 - **DAG Engine**: Uses NetworkX for cycle validation (`would_create_cycle`) and topological schedule shifts.
 - **Status Gate**: Tasks compute `READY` when all direct predecessors are in `DONE`; otherwise, they evaluate to `BLOCKED`.
 
-## ⚠️ Known Limitations
+## Known Limitations
 - Current memory store resets on server restart (designed for stateless demo; PostgreSQL/Redis adapter recommended for horizontal scaling).
 - Real-time multi-client collaboration requires WebSockets or SSE for instant state sync across active browsers.
